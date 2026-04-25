@@ -4,12 +4,25 @@
     <meta charset="UTF-8">
     <title>bmail | Secure Inbox</title>
     <style>
+        /* Sidebar and Layout */
         body { font-family: sans-serif; background: #f0f2f5; margin: 0; display: flex; height: 100vh; }
         #sidebar { width: 260px; background: #ffffff; border-right: 1px solid #ddd; padding: 20px; display: flex; flex-direction: column; }
         #main { flex-grow: 1; padding: 40px; overflow-y: auto; }
+        
+        /* Email Cards */
         .email-card { background: white; padding: 20px; margin-bottom: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 6px solid #007bff; }
-        .user-badge { background: #e8f0fe; color: #1967d2; padding: 10px; border-radius: 8px; font-weight: bold; margin-bottom: 10px; }
-        button.logout-btn { background: #ff4444; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-top: auto; }
+        .user-badge { background: #e8f0fe; color: #1967d2; padding: 10px; border-radius: 8px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+        
+        /* Buttons */
+        button { cursor: pointer; border-radius: 5px; font-weight: bold; transition: 0.2s; }
+        .logout-btn { background: #ff4444; color: white; border: none; padding: 10px; margin-top: auto; width: 100%; }
+        .compose-btn { background: #34a853; color: white; border: none; padding: 12px; margin-bottom: 20px; width: 150px; }
+        .send-btn { background: #1a73e8; color: white; border: none; padding: 10px 20px; }
+        
+        /* Compose Box */
+        #compose-section { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #ddd; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .compose-input { width: 95%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 5px; font-family: inherit; }
+        
         .hidden { display: none; }
     </style>
 </head>
@@ -27,15 +40,28 @@
 
 <div id="main">
     <header><h2 id="view-title">Please Sign in with Ez-login</h2></header>
+
+    <button id="compose-toggle" class="compose-btn hidden" onclick="toggleCompose()">+ Compose</button>
+
+    <div id="compose-section" class="hidden">
+        <h3>New Message</h3>
+        <input type="text" id="msg-to" class="compose-input" placeholder="To: example@bmail.com">
+        <input type="text" id="msg-subject" class="compose-input" placeholder="Subject">
+        <textarea id="msg-body" class="compose-input" style="height: 100px;" placeholder="Message..."></textarea>
+        <br>
+        <button class="send-btn" onclick="sendEmail()">Send Message</button>
+        <button onclick="toggleCompose()" style="background:none; border:none; color:gray; margin-left:10px; cursor:pointer;">Cancel</button>
+    </div>
+
     <div id="email-list"></div>
 </div>
 
 <script>
     let currentUserEmail = null;
-    // Replace this with your actual Codespace Port 3000 URL!
+    // Update this to your specific Codespace URL if it changes
     const API_URL = 'https://turbo-funicular-7v44pjw49j6xhrvwx-3000.app.github.dev';
 
-    // 1. AUTO-LOGIN CHECK: Check if we already have a bmail address saved
+    // Check for saved session on load
     window.onload = () => {
         const saved = localStorage.getItem('bmail_session');
         if (saved) {
@@ -44,17 +70,11 @@
         }
     };
 
-    // Listen for the message from sync.html
+    // Listen for the Ez-login verification
     window.addEventListener("message", (event) => {
         if (event.origin !== "https://codeblub.github.io") return;
-
         if (event.data.type === 'EZ_LOGIN_SUCCESS') {
-            // 2. SAVE: Record the session so we don't ask again
-            localStorage.setItem('bmail_session', JSON.stringify({
-                user: event.data.user,
-                email: event.data.email
-            }));
-            
+            localStorage.setItem('bmail_session', JSON.stringify({ email: event.data.email }));
             activateDashboard(event.data.email);
         }
     });
@@ -62,48 +82,77 @@
     function activateDashboard(email) {
         currentUserEmail = email;
         
-        // UI Transitions
+        // Hide login, show app
         document.getElementById('ez-sync-container').classList.add('hidden');
         document.getElementById('user-info').classList.remove('hidden');
+        document.getElementById('compose-toggle').classList.remove('hidden');
         
         document.getElementById('user-info').innerHTML = `
             <div class="user-badge">${email}</div>
-            <button class="logout-btn" onclick="logout()">Logout / Switch Account</button>
+            <button class="logout-btn" onclick="logout()">Logout / Switch</button>
         `;
         
         document.getElementById('view-title').innerText = "Your Inbox";
-        
-        // Load the mail
         fetchEmails();
-        // Check for new mail every 20 seconds
-        setInterval(fetchEmails, 20000);
+        setInterval(fetchEmails, 10000); // Check for mail every 10s
     }
 
     async function fetchEmails() {
         if (!currentUserEmail) return;
         try {
-            const response = await fetch(`${API_URL}/inbox?user=${currentUserEmail}`);
-            const emails = await response.json();
+            const res = await fetch(`${API_URL}/inbox?user=${currentUserEmail}`);
+            const emails = await res.json();
             const list = document.getElementById('email-list');
             
             if (emails.length === 0) {
-                list.innerHTML = "<p>No messages in your inbox.</p>";
+                list.innerHTML = "<p style='color:gray;'>Your inbox is empty.</p>";
                 return;
             }
 
             list.innerHTML = emails.map(e => `
                 <div class="email-card">
-                    <strong>From: ${e.from || 'Unknown'}</strong>
+                    <strong>From: ${e.from}</strong><br>
+                    <small style="color:#555;">Subject: ${e.subject || 'No Subject'}</small>
                     <p>${e.body}</p>
                 </div>
             `).join('');
-        } catch (e) { 
-            console.log("Bmail Engine offline. Make sure server.js is running!"); 
+        } catch (e) {
+            console.log("Engine offline. Check if 'node server.js' is running in the terminal.");
+        }
+    }
+
+    function toggleCompose() {
+        document.getElementById('compose-section').classList.toggle('hidden');
+    }
+
+    async function sendEmail() {
+        const to = document.getElementById('msg-to').value;
+        const subject = document.getElementById('msg-subject').value;
+        const body = document.getElementById('msg-body').value;
+
+        if (!to.includes('@bmail.com')) return alert("Enter a valid @bmail.com address");
+
+        try {
+            const res = await fetch(`${API_URL}/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from: currentUserEmail, to, subject, body })
+            });
+
+            if (res.ok) {
+                alert("Message Sent!");
+                toggleCompose();
+                // Clear fields
+                document.getElementById('msg-to').value = "";
+                document.getElementById('msg-subject').value = "";
+                document.getElementById('msg-body').value = "";
+            }
+        } catch (e) {
+            alert("Error sending message. Is the server running?");
         }
     }
 
     function logout() {
-        // Clear both the Bmail session AND the dashboard link
         localStorage.removeItem('bmail_session');
         localStorage.removeItem('ez_login_bmail');
         location.reload();

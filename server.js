@@ -1,38 +1,65 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const app = express();
+const DB_FILE = './database.json';
 
-app.use(cors()); // This allows your index.html to talk to this server
+app.use(cors());
+app.use(express.json()); // This allows the server to read the "Compose" data
 
-// This is your "Database"
-// We use the names from your Ez-login system here
-let mailboxes = {
-    "Codeblub": [
-        { from: "System", subject: "Welcome to bmail", body: "Your engine is officially running on Codespaces!" },
-        { from: "Ez-login", subject: "Sync Successful", body: "Your account is now linked to your custom mail domain." }
-    ],
-    "Guest": [
-        { from: "System", subject: "Guest Mode", body: "Please log in to see your private messages." }
-    ]
-};
+// Load existing data or start empty
+let mailboxes = fs.existsSync(DB_FILE) 
+    ? JSON.parse(fs.readFileSync(DB_FILE)) 
+    : {};
 
-// Route to get emails for a specific user
+function saveDB() {
+    fs.writeFileSync(DB_FILE, JSON.stringify(mailboxes, null, 2));
+}
+
+// 1. Get Inbox (Existing)
 app.get('/inbox', (req, res) => {
-    const user = req.query.user;
-    console.log(`Checking inbox for: ${user}`);
+    const email = req.query.user;
+    if (!email) return res.json([]);
     
-    // If the user exists in our "database", send their mail. 
-    // Otherwise, send an empty list.
-    const userMail = mailboxes[user] || [];
-    res.json(userMail);
+    if (!mailboxes[email]) {
+        mailboxes[email] = [
+            { from: "System", subject: "Welcome to bmail", body: `Your account ${email} is ready.` }
+        ];
+        saveDB();
+    }
+    res.json(mailboxes[email]);
 });
 
-// Route to "Receive" a fake email (for testing)
-// Usage: /send-fake?to=Codeblub&from=Friend&msg=Hello!
+// 2. Official Send Route (New!)
+app.post('/send', (req, res) => {
+    const { from, to, subject, body } = req.body;
+
+    if (!to || !from) return res.status(400).json({ error: "Missing fields" });
+
+    // If the recipient doesn't have an inbox yet, make one
+    if (!mailboxes[to]) {
+        mailboxes[to] = [];
+    }
+
+    // Add the email to their list
+    mailboxes[to].push({
+        from: from,
+        subject: subject || "(No Subject)",
+        body: body || "",
+        date: new Date().toLocaleString()
+    });
+
+    saveDB();
+    console.log(`Message delivered: ${from} -> ${to}`);
+    res.json({ success: true });
+});
+
+// 3. Fake Send Route (Keeping your old testing route)
 app.get('/send-fake', (req, res) => {
     const { to, from, msg } = req.query;
     if (mailboxes[to]) {
         mailboxes[to].push({ from, subject: "New Message", body: msg });
+        saveDB();
         res.send("Email delivered!");
     } else {
         res.status(404).send("User not found");
@@ -41,10 +68,5 @@ app.get('/send-fake', (req, res) => {
 
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`
-    📧 bmail Engine Active
-    -----------------------
-    Listening on Port: ${PORT}
-    Ready to serve Ez-login users
-    `);
+    console.log(`📧 bmail Engine Active on Port ${PORT}`);
 });
